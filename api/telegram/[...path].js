@@ -124,21 +124,30 @@ async function procesarMensaje(mensaje) {
 
 module.exports = async (req, res) => {
   // CORS: permitir peticiones desde Ionic.
+
+const crypto = require('crypto');
+
+module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader(
-    'Access-Control-Allow-Methods',
-    'GET, POST, DELETE, OPTIONS'
-  );
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'Content-Type, Authorization, X-Telegram-Bot-Api-Secret-Token'
-  );
-  res.setHeader('Access-Control-Max-Age', '86400');
-  console.log('[TELEGRAM API]', {
-  method: req.method,
-  url: req.url,
-  query: req.query
-});
+  res.setHeader('Access-Control-Allow-Methods', 'GET, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  console.log('[VERIFICAR VINCULACION]', {
+    method: req.method,
+    url: req.url,
+    query: req.query
+  });
+
+  return res.status(500).json({
+    error: 'RUTA_ALCANZADA',
+    mensaje: 'Vercel ya ejecuta el archivo de verificación.',
+    codigo: req.query.codigo
+  });
+};
 
   // El navegador envía OPTIONS antes de ciertas peticiones POST.
   if (req.method === 'OPTIONS') {
