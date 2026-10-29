@@ -3,20 +3,26 @@ const crypto = require('crypto');
 
 const TOKEN = process.env.TELEGRAM_BOT_TOKEN;
 const BOT_USERNAME = (process.env.TELEGRAM_BOT_USERNAME || '').replace(/^@/, '');
-const APP_URL = (process.env.APP_URL || '').replace(/\/$/, '');
+const APP_URL = (process.env.APP_URL || '').replace(/\/+$/, '');
 const SETUP_SECRET = process.env.WEBHOOK_SETUP_SECRET;
 const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET;
 
-// Solo sirve como almacenamiento temporal.
-// Vercel NO garantiza que esta memoria sobreviva entre peticiones.
+// Almacenamiento temporal.
+// IMPORTANTE: Vercel no garantiza que este Map sobreviva entre peticiones.
 const codigosVinculacion = new Map();
 
 async function telegram(metodo, datos = {}) {
+  if (!TOKEN) {
+    throw new Error('Falta TELEGRAM_BOT_TOKEN.');
+  }
+
   const respuesta = await fetch(
     `https://api.telegram.org/bot${TOKEN}/${metodo}`,
     {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json'
+      },
       body: JSON.stringify(datos)
     }
   );
@@ -40,8 +46,11 @@ async function enviarMensaje(chatId, texto) {
 function codigoValido(codigo) {
   const vinculacion = codigosVinculacion.get(codigo);
 
-  if (!vinculacion) return null;
+  if (!vinculacion) {
+    return null;
+  }
 
+  // El código expira después de 10 minutos.
   if (Date.now() - vinculacion.creado > 10 * 60 * 1000) {
     codigosVinculacion.delete(codigo);
     return null;
@@ -51,7 +60,9 @@ function codigoValido(codigo) {
 }
 
 async function procesarMensaje(mensaje) {
-  if (!mensaje?.text || !mensaje.chat?.id) return;
+  if (!mensaje?.text || !mensaje.chat?.id) {
+    return;
+  }
 
   const texto = mensaje.text.trim();
   const chatId = String(mensaje.chat.id);
@@ -61,14 +72,18 @@ async function procesarMensaje(mensaje) {
     texto
   });
 
+  // Reconocer /start y /start CODIGO.
   const coincidencia = texto.match(
     /^\/start(?:@\w+)?(?:\s+([A-Za-z0-9]+))?$/
   );
 
-  if (!coincidencia) return;
+  if (!coincidencia) {
+    return;
+  }
 
   const codigo = coincidencia[1]?.toUpperCase();
 
+  // Inicio normal del bot.
   if (!codigo) {
     await enviarMensaje(
       chatId,
@@ -76,9 +91,11 @@ async function procesarMensaje(mensaje) {
       'Para vincular tu cuenta, solicita un enlace de vinculación ' +
       'desde tu consultorio y abre ese enlace en Telegram.'
     );
+
     return;
   }
 
+  // Inicio del bot con código de vinculación.
   const vinculacion = codigoValido(codigo);
 
   if (!vinculacion) {
@@ -87,6 +104,7 @@ async function procesarMensaje(mensaje) {
       'Este código no existe o ya expiró. ' +
       'Solicita uno nuevo en MyConsult MD.'
     );
+
     return;
   }
 
@@ -105,28 +123,46 @@ async function procesarMensaje(mensaje) {
 }
 
 module.exports = async (req, res) => {
-  if (!TOKEN || !BOT_USERNAME) {
+  // CORS: permitir peticiones desde Ionic.
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, POST, DELETE, OPTIONS'
+  );
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization, X-Telegram-Bot-Api-Secret-Token'
+  );
+  res.setHeader('Access-Control-Max-Age', '86400');
+
+  // El navegador envía OPTIONS antes de ciertas peticiones POST.
+  if (req.method === 'OPTIONS') {
+    return res.status(204).end();
+  }
+
+  if (!TOKEN) {
     return res.status(500).json({
-      mensaje: 'Faltan TELEGRAM_BOT_TOKEN o TELEGRAM_BOT_USERNAME.'
+      mensaje: 'Falta configurar TELEGRAM_BOT_TOKEN en Vercel.'
     });
   }
 
-  const ruta = (req.url || '/').split('?')[0]
+  const ruta = (req.url || '/')
+    .split('?')[0]
     .replace(/\/+$/, '') || '/';
 
   try {
-    // Comprobar que el token funciona.
+    // Comprobar la conexión con Telegram.
     if (ruta.endsWith('/estado') && req.method === 'GET') {
       const info = await telegram('getMe');
 
-      return res.json({
+      return res.status(200).json({
         conectado: true,
         nombre: info.first_name,
         usuario: info.username
       });
     }
 
-    // Configurar el webhook una sola vez.
+    // Configurar el webhook.
     if (
       ruta.endsWith('/configurar-webhook') &&
       req.method === 'GET'
@@ -148,35 +184,40 @@ module.exports = async (req, res) => {
       await telegram('setWebhook', {
         url: webhookUrl,
         allowed_updates: ['message'],
-        secret_token: WEBHOOK_SECRET || undefined
+        ...(WEBHOOK_SECRET
+          ? { secret_token: WEBHOOK_SECRET }
+          : {})
       });
 
       const info = await telegram('getWebhookInfo');
 
-      return res.json({
+      return res.status(200).json({
         configurado: true,
         webhook: info.url,
         mensajesPendientes: info.pending_update_count
       });
     }
 
-    // Telegram envía aquí los mensajes recibidos por el bot.
+    // Recibir mensajes enviados por Telegram.
     if (ruta.endsWith('/webhook') && req.method === 'POST') {
       if (
         WEBHOOK_SECRET &&
         req.headers['x-telegram-bot-api-secret-token'] !== WEBHOOK_SECRET
       ) {
-        return res.status(401).json({ mensaje: 'Webhook no autorizado.' });
+        return res.status(401).json({
+          mensaje: 'Webhook no autorizado.'
+        });
       }
 
-      // Responder a Telegram después de procesar el mensaje.
       const actualizacion = req.body;
 
       if (actualizacion?.message) {
         await procesarMensaje(actualizacion.message);
       }
 
-      return res.status(200).json({ ok: true });
+      return res.status(200).json({
+        ok: true
+      });
     }
 
     // Generar código para vincular un paciente.
@@ -184,15 +225,25 @@ module.exports = async (req, res) => {
       ruta.endsWith('/generar-codigo') &&
       req.method === 'POST'
     ) {
+      if (!BOT_USERNAME) {
+        return res.status(500).json({
+          mensaje: 'Falta configurar TELEGRAM_BOT_USERNAME en Vercel.'
+        });
+      }
+
       const pacienteId = req.body?.pacienteId;
 
-      if (!Number.isInteger(pacienteId) || pacienteId <= 0) {
+      if (
+        !Number.isInteger(pacienteId) ||
+        pacienteId <= 0
+      ) {
         return res.status(400).json({
           mensaje: 'El ID del paciente no es válido.'
         });
       }
 
-      const codigo = crypto.randomBytes(4)
+      const codigo = crypto
+        .randomBytes(4)
         .toString('hex')
         .toUpperCase();
 
@@ -202,14 +253,14 @@ module.exports = async (req, res) => {
         chatId: null
       });
 
-      return res.json({
+      return res.status(200).json({
         codigo,
         enlace: `https://t.me/${BOT_USERNAME}?start=${codigo}`,
         expiraEnSegundos: 600
       });
     }
 
-    // Consultar si se inició la vinculación.
+    // Consultar el estado de una vinculación.
     const coincidencia = ruta.match(
       /\/vinculacion\/([A-Za-z0-9]+)$/
     );
@@ -226,21 +277,21 @@ module.exports = async (req, res) => {
       }
 
       if (!vinculacion.chatId) {
-        return res.json({
+        return res.status(200).json({
           vinculada: false,
           pendiente: true,
           mensaje: 'Todavía no se ha iniciado el bot con este código.'
         });
       }
 
-      return res.json({
+      return res.status(200).json({
         vinculada: true,
         pacienteId: vinculacion.pacienteId,
         chatId: vinculacion.chatId
       });
     }
 
-    // Eliminar el código después de guardar la vinculación.
+    // Eliminar el código después de completar la vinculación.
     if (coincidencia && req.method === 'DELETE') {
       const codigo = coincidencia[1].toUpperCase();
       const vinculacion = codigoValido(codigo);
@@ -253,7 +304,9 @@ module.exports = async (req, res) => {
 
       codigosVinculacion.delete(codigo);
 
-      return res.json({ eliminada: true });
+      return res.status(200).json({
+        eliminada: true
+      });
     }
 
     return res.status(404).json({
@@ -261,10 +314,11 @@ module.exports = async (req, res) => {
       ruta
     });
   } catch (error) {
-    console.error('Error en backend de Telegram:', error.message);
+    console.error('Error en backend de Telegram:', error);
 
     return res.status(500).json({
-      mensaje: 'Error procesando la solicitud de Telegram.'
+      mensaje: 'Error procesando la solicitud de Telegram.',
+      detalle: error.message
     });
   }
 };
