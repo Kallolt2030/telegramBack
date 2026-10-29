@@ -140,6 +140,11 @@ module.exports = async (req, res) => {
     return res.status(204).end();
   }
 
+  console.log('[TELEGRAM API]', {
+    method: req.method,
+    url: req.url
+  });
+
   if (!TOKEN) {
     return res.status(500).json({
       mensaje: 'Falta configurar TELEGRAM_BOT_TOKEN en Vercel.'
