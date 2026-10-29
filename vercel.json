@@ -1,4 +1,15 @@
 
 {
-  "version": 2
+  "version": 2,
+  "functions": {
+    "api/telegram/[...path].js": {
+      "maxDuration": 10
+    }
+  },
+  "rewrites": [
+    {
+      "source": "/api/telegram/(.*)",
+      "destination": "/api/telegram/$1"
+    }
+  ]
 }
