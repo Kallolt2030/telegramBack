@@ -134,6 +134,11 @@ module.exports = async (req, res) => {
     'Content-Type, Authorization, X-Telegram-Bot-Api-Secret-Token'
   );
   res.setHeader('Access-Control-Max-Age', '86400');
+  console.log('[TELEGRAM API]', {
+  method: req.method,
+  url: req.url,
+  query: req.query
+});
 
   // El navegador envía OPTIONS antes de ciertas peticiones POST.
   if (req.method === 'OPTIONS') {
