@@ -1,5 +1,5 @@
-
-const { admin, obtenerFirebaseAdmin } = require('../../services/firebase');
+const { getMessaging } = require('firebase-admin/messaging');
+const { obtenerFirebaseAdmin } = require('../../services/firebase');
 
 module.exports = async (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,20 +20,20 @@ module.exports = async (req, res) => {
   }
 
   // Proteger el endpoint con un secreto configurado en Vercel.
-    const secreto = (process.env.NOTIFICACIONES_API_SECRET || '').trim();
-    const autorizacion = (req.headers.authorization || '').trim();
+  const secreto = (process.env.NOTIFICACIONES_API_SECRET || '').trim();
+  const autorizacion = (req.headers.authorization || '').trim();
 
-    if (!secreto || autorizacion !== `Bearer ${secreto}`) {
+  if (!secreto || autorizacion !== `Bearer ${secreto}`) {
     console.error('[FCM] Error de autenticación:', {
-        secretoConfigurado: Boolean(secreto),
-        autorizacionRecibida: Boolean(autorizacion),
-        coincide: autorizacion === `Bearer ${secreto}`
+      secretoConfigurado: Boolean(secreto),
+      autorizacionRecibida: Boolean(autorizacion),
+      coincide: autorizacion === `Bearer ${secreto}`
     });
 
     return res.status(401).json({
-        mensaje: 'No autorizado.'
+      mensaje: 'No autorizado.'
     });
-    }
+  }
 
   try {
     const { token, titulo, mensaje } = req.body || {};
@@ -44,9 +44,14 @@ module.exports = async (req, res) => {
       });
     }
 
-    obtenerFirebaseAdmin();
+    // 1) Inicializar Firebase (obtiene o crea la app)
+    const app = obtenerFirebaseAdmin();
 
-    const respuesta = await admin.messaging().send({
+    // 2) Obtener la instancia de Messaging desde la app
+    const messaging = getMessaging(app);
+
+    // 3) Enviar la notificación con la API modular
+    const respuesta = await messaging.send({
       token,
       notification: {
         title: titulo || 'MyConsult MD',
@@ -67,7 +72,12 @@ module.exports = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[FCM] Error al enviar:', error);
+    // Logging enriquecido para que Vercel muestre el stack real
+    console.error('[FCM] Error al enviar:', {
+      message: error.message,
+      code: error.code,
+      stack: error.stack
+    });
 
     return res.status(500).json({
       enviada: false,

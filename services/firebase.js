@@ -1,9 +1,9 @@
-
-const admin = require('firebase-admin');
+const { initializeApp, getApps, cert } = require('firebase-admin/app');
 
 function obtenerFirebaseAdmin() {
-  if (admin.apps.length > 0) {
-    return admin.app();
+  // 1. getApps() devuelve un array con las apps inicializadas.
+  if (getApps().length > 0) {
+    return getApps()[0];
   }
 
   const projectId = process.env.FIREBASE_PROJECT_ID;
@@ -16,18 +16,16 @@ function obtenerFirebaseAdmin() {
     );
   }
 
-  admin.initializeApp({
-    credential: admin.credential.cert({
+  // 2. La inicialización ahora es una función importada.
+  return initializeApp({
+    credential: cert({
       projectId,
       clientEmail,
       privateKey: privateKey.replace(/\\n/g, '\n')
     })
   });
-
-  return admin.app();
 }
 
 module.exports = {
-  admin,
   obtenerFirebaseAdmin
 };
