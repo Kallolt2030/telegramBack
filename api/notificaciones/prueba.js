@@ -20,14 +20,20 @@ module.exports = async (req, res) => {
   }
 
   // Proteger el endpoint con un secreto configurado en Vercel.
-  const secreto = process.env.NOTIFICACIONES_API_SECRET;
-  const autorizacion = req.headers.authorization;
+    const secreto = (process.env.NOTIFICACIONES_API_SECRET || '').trim();
+    const autorizacion = (req.headers.authorization || '').trim();
 
-  if (!secreto || autorizacion !== `Bearer ${secreto}`) {
-    return res.status(401).json({
-      mensaje: 'No autorizado.'
+    if (!secreto || autorizacion !== `Bearer ${secreto}`) {
+    console.error('[FCM] Error de autenticación:', {
+        secretoConfigurado: Boolean(secreto),
+        autorizacionRecibida: Boolean(autorizacion),
+        coincide: autorizacion === `Bearer ${secreto}`
     });
-  }
+
+    return res.status(401).json({
+        mensaje: 'No autorizado.'
+    });
+    }
 
   try {
     const { token, titulo, mensaje } = req.body || {};
